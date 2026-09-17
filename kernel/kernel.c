@@ -31,6 +31,7 @@
 #include "mutex.h"
 #include "semaphore.h"
 #include "pmm.h"
+#include "fs.h"
 
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
@@ -185,6 +186,65 @@ static void cmd_mem_test(void) {
     pmm_free_page(p4);
     vga_puts("  Cleanup complete.\n");
 }
+/* ---------------------------------------------------------------------------
+ *  RAM Disk File System:
+ * --------------------------------------------------------------------------*/
+static void cmd_touch(const char *name) {
+    name = k_ltrim(name);
+    if (k_strlen(name) == 0) {
+        vga_puts_color("  Usage: touch <filename>\n", VGA_YELLOW, VGA_BLACK);
+        return;
+    }
+    if (fs_create(name) == 0) {
+        vga_puts("  Created file: ");
+        vga_puts(name);
+        vga_puts("\n");
+    } else {
+        vga_puts_color("  Error: file already exists or disk full.\n", VGA_LIGHT_RED, VGA_BLACK);
+    }
+}
+
+static void cmd_cat(const char *name) {
+    name = k_ltrim(name);
+    if (k_strlen(name) == 0) {
+        vga_puts_color("  Usage: cat <filename>\n", VGA_YELLOW, VGA_BLACK);
+        return;
+    }
+    static char read_buf[1024];
+    int res = fs_read(name, read_buf, sizeof(read_buf));
+    if (res >= 0) {
+        vga_puts("  ");
+        vga_puts(read_buf);
+        vga_puts("\n");
+    } else {
+        vga_puts_color("  Error: file not found.\n", VGA_LIGHT_RED, VGA_BLACK);
+    }
+}
+
+static void cmd_write(const char *args) {
+    args = k_ltrim(args);
+    char filename[32];
+    int i = 0;
+    while (*args && *args != ' ' && i < 31) {
+        filename[i++] = *args++;
+    }
+    filename[i] = '\0';
+    args = k_ltrim(args);
+
+    if (i == 0 || *args == '\0') {
+        vga_puts_color("  Usage: write <filename> <text>\n", VGA_YELLOW, VGA_BLACK);
+        return;
+    }
+
+    int res = fs_write(filename, args, k_strlen(args));
+    if (res >= 0) {
+        vga_puts("  Written to ");
+        vga_puts(filename);
+        vga_puts("\n");
+    } else {
+        vga_puts_color("  Error: file not found. Create it first with 'touch'.\n", VGA_LIGHT_RED, VGA_BLACK);
+    }
+}
 
 /* ---------------------------------------------------------------------------
  * Splash Screen
@@ -237,19 +297,29 @@ static void print_splash(void) {
  * --------------------------------------------------------------------------*/
 static void cmd_help(void) {
     vga_puts_color("\n  SENG21213-OS Shell Commands\n", VGA_YELLOW, VGA_BLACK);
-    vga_puts("  ─────────────────────────────────────────────\n");
-    vga_puts("  help    – Show this help message\n");
-    vga_puts("  clear   – Clear the screen\n");
-    vga_puts("  about   – About this OS and course\n");
-    vga_puts("  echo    – Echo text to screen\n");
-    vga_puts("  mem     – Memory map (stub)\n");
-    vga_puts_color("\n  Milestones (to implement):\n", VGA_LIGHT_CYAN, VGA_BLACK);
-    vga_puts("  ps      – [L09] List processes\n");
-    vga_puts("  kill    – [L09] Terminate a process\n");
-    vga_puts("  threads – [L10] List kernel threads\n");
-    vga_puts("  free    – [L11] Show free memory\n");
-    vga_puts("  ls      – [L12] List files\n");
-    vga_puts("  cat     – [L12] Print file contents\n\n");
+    vga_puts("  -------------------------------------------------------------\n");
+    vga_puts("  help                - Show this command reference\n");
+    vga_puts("  clear               - Clear screen\n");
+    vga_puts("  about               - Kernel and system information\n");
+    vga_puts("  echo <text>         - Print string to terminal\n");
+
+    vga_puts_color("\n  Process & Task Management [L09]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
+    vga_puts("  ps                  - List all processes and runtime states\n");
+    vga_puts("  spawn <task>        - Spawn background task (counter_a / counter_b)\n");
+    vga_puts("  kill <pid>          - Terminate process by PID\n");
+
+    vga_puts_color("\n  Threads & Synchronization [L10]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
+    vga_puts("  threads             - List active kernel threads\n");
+    vga_puts("  sync_test           - Test concurrent threads with mutex lock\n");
+
+    vga_puts_color("\n  Memory Management [L11]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
+    vga_puts("  free                - Display PMM physical page statistics & test\n");
+
+    vga_puts_color("\n  RAMDisk & File System [L12]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
+    vga_puts("  ls                  - List files in RAMDisk directory\n");
+    vga_puts("  touch <file>        - Create a new empty file\n");
+    vga_puts("  write <file> <text> - Write data to a file\n");
+    vga_puts("  cat <file>          - Display contents of a file\n\n");
 }
 
 static void cmd_clear(void) {
@@ -332,14 +402,24 @@ static void shell_run(void) {
             cmd_mem_test();
             continue;
         }
-        /* Milestone stubs */
-        if (k_strcmp(cmd, "ls")      == 0 ||
-            k_strcmp(cmd, "cat")     == 0) {
-            vga_puts_color("  [TODO] This command is not yet implemented.\n",
-                           VGA_YELLOW, VGA_BLACK);
-            vga_puts("  Implement it as part of your lecture assignment.\n");
-            continue;
+        if (k_strcmp(cmd, "ls") == 0) {
+        fs_list();
+        continue;
         }
+         if (k_strncmp(cmd, "cat", 3) == 0) {
+        cmd_cat(cmd + 3);
+        continue;
+         }
+         if (k_strncmp(cmd, "touch", 5) == 0) {
+        cmd_touch(cmd + 5);
+        continue;
+          }
+         if (k_strncmp(cmd, "write", 5) == 0) {
+        cmd_write(cmd + 5);
+        continue;
+        }
+        /* Milestone stubs */
+        
 
         vga_puts_color("  Unknown command: ", VGA_LIGHT_RED, VGA_BLACK);
         vga_puts(cmd);
@@ -351,23 +431,33 @@ static void shell_run(void) {
  * Kernel entry point – called from kernel_entry.asm
  * --------------------------------------------------------------------------*/
 void kernel_main(void) {
+    /* 1. Core Hardware & Display */
     vga_init();
     kb_init();
     print_splash();
-    
+
+    /* 2. Memory & Storage Subsystems */
     pmm_init();
+    fs_init();
+
+    /* 3. Task Management */
     process_init();
     thread_init();
     scheduler_init();
 
+    /* 4. Interrupts & Timer */
     idt_init();
     pic_remap();
-    pit_init(50); // 50 Hz tick rate
+    pit_init(50);
 
-    __asm__ __volatile__("sti"); // Enable interrupts
+    /* 5. Launch interactive shell */
+    /* Enable interrupts just before running the shell, or inside shell_run */
+    __asm__ __volatile__("sti");
 
     shell_run();
 
-    /* Should never reach here */
-    __asm__ __volatile__("hlt");
+    /* Catch unexpected exit */
+    while (1) {
+        __asm__ __volatile__("cli; hlt");
+    }
 }
