@@ -30,7 +30,7 @@
 #include "thread.h"
 #include "mutex.h"
 #include "semaphore.h"
-
+#include "pmm.h"
 
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
@@ -161,6 +161,30 @@ static void cmd_test_sync(void) {
     thread_create("worker_2", worker_thread_2);
 }
 
+/* ---------------------------------------------------------------------------
+ * Add allocation test command:
+ * --------------------------------------------------------------------------*/
+static void cmd_mem_test(void) {
+    vga_puts("  Allocating 3 physical pages...\n");
+    void *p1 = pmm_alloc_page();
+    void *p2 = pmm_alloc_page();
+    void *p3 = pmm_alloc_page();
+
+    vga_printf("  Page 1: 0x%x\n", (uint32_t)p1);
+    vga_printf("  Page 2: 0x%x\n", (uint32_t)p2);
+    vga_printf("  Page 3: 0x%x\n", (uint32_t)p3);
+
+    vga_puts("  Freeing Page 2...\n");
+    pmm_free_page(p2);
+
+    void *p4 = pmm_alloc_page();
+    vga_printf("  Allocated Page 4: 0x%x (should reuse Page 2)\n", (uint32_t)p4);
+
+    pmm_free_page(p1);
+    pmm_free_page(p3);
+    pmm_free_page(p4);
+    vga_puts("  Cleanup complete.\n");
+}
 
 /* ---------------------------------------------------------------------------
  * Splash Screen
@@ -303,10 +327,13 @@ static void shell_run(void) {
             cmd_test_sync();
             continue;
         }
+        if (k_strcmp(cmd, "free") == 0) {
+            pmm_dump_info();
+            cmd_mem_test();
+            continue;
+        }
         /* Milestone stubs */
-        if (
-            k_strcmp(cmd, "free")    == 0 ||
-            k_strcmp(cmd, "ls")      == 0 ||
+        if (k_strcmp(cmd, "ls")      == 0 ||
             k_strcmp(cmd, "cat")     == 0) {
             vga_puts_color("  [TODO] This command is not yet implemented.\n",
                            VGA_YELLOW, VGA_BLACK);
@@ -327,7 +354,8 @@ void kernel_main(void) {
     vga_init();
     kb_init();
     print_splash();
-
+    
+    pmm_init();
     process_init();
     thread_init();
     scheduler_init();
