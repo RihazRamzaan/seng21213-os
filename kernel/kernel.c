@@ -27,6 +27,10 @@
 #include "process.h"
 #include "scheduler.h"
 #include "idt.h"
+#include "thread.h"
+#include "mutex.h"
+#include "semaphore.h"
+
 
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
@@ -123,6 +127,40 @@ static void cmd_spawn(const char *args) {
         vga_puts_color("  Unknown task. Try: spawn counter_a or spawn counter_b\n", VGA_YELLOW, VGA_BLACK);
     }
 }
+
+/* ---------------------------------------------------------------------------
+ * Add Concurrency Demo Tasks:
+ * --------------------------------------------------------------------------*/
+
+static mutex_t test_mutex;
+static volatile int shared_counter = 0;
+
+static void worker_thread_1(void) {
+    for (int i = 0; i < 50000; i++) {
+        mutex_lock(&test_mutex);
+        shared_counter++;
+        mutex_unlock(&test_mutex);
+    }
+    thread_exit();
+}
+
+static void worker_thread_2(void) {
+    for (int i = 0; i < 50000; i++) {
+        mutex_lock(&test_mutex);
+        shared_counter++;
+        mutex_unlock(&test_mutex);
+    }
+    thread_exit();
+}
+
+static void cmd_test_sync(void) {
+    shared_counter = 0;
+    mutex_init(&test_mutex);
+    vga_puts("  Starting 2 threads incrementing shared_counter to 100,000 with mutex...\n");
+    thread_create("worker_1", worker_thread_1);
+    thread_create("worker_2", worker_thread_2);
+}
+
 
 /* ---------------------------------------------------------------------------
  * Splash Screen
@@ -257,10 +295,16 @@ static void shell_run(void) {
         if (k_strcmp(cmd, "ps") == 0) { cmd_ps(); continue; }
         if (k_strncmp(cmd, "kill", 4) == 0) { cmd_kill(cmd + 4); continue; }
         if (k_strncmp(cmd, "spawn", 5) == 0) { cmd_spawn(cmd + 5); continue; }
-
+        if (k_strcmp(cmd, "threads") == 0) {
+            thread_list();
+            continue;
+        }
+        if (k_strcmp(cmd, "sync_test") == 0) {
+            cmd_test_sync();
+            continue;
+        }
         /* Milestone stubs */
         if (
-            k_strcmp(cmd, "threads") == 0 ||
             k_strcmp(cmd, "free")    == 0 ||
             k_strcmp(cmd, "ls")      == 0 ||
             k_strcmp(cmd, "cat")     == 0) {
@@ -285,6 +329,7 @@ void kernel_main(void) {
     print_splash();
 
     process_init();
+    thread_init();
     scheduler_init();
 
     idt_init();
