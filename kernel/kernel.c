@@ -24,10 +24,17 @@
 #include "vga.h"
 #include "keyboard.h"
 #include "../include/types.h"
+#include "process.h"
+#include "scheduler.h"
+#include "idt.h"
 
 /* ---------------------------------------------------------------------------
  * Forward declarations of shell commands
  * --------------------------------------------------------------------------*/
+static int k_strcmp(const char *a, const char *b);
+static int k_strncmp(const char *a, const char *b, size_t n);
+static size_t k_strlen(const char *s);
+static const char *k_ltrim(const char *s);
 static void cmd_help(void);
 static void cmd_clear(void);
 static void cmd_about(void);
@@ -37,6 +44,7 @@ static void cmd_mem(void);
 /* ---------------------------------------------------------------------------
  * Utility: minimal string helpers (no libc in a freestanding kernel!)
  * --------------------------------------------------------------------------*/
+
 static int k_strcmp(const char *a, const char *b) {
     while (*a && (*a == *b)) { a++; b++; }
     return (uint8_t)*a - (uint8_t)*b;
@@ -57,6 +65,63 @@ static size_t k_strlen(const char *s) {
 static const char *k_ltrim(const char *s) {
     while (*s == ' ') s++;
     return s;
+}
+
+/* ---------------------------------------------------------------------------
+ * Stage 1: Demo Tasks & Commands
+ * --------------------------------------------------------------------------*/
+static void task_counter_a(void) {
+    char ch = 'A';
+    while (1) {
+        vga_set_cursor(0, 78);
+        vga_set_color(VGA_YELLOW, VGA_BLACK);
+        vga_putchar(ch);
+        ch = (ch == 'Z') ? 'A' : ch + 1;
+        for (volatile int i = 0; i < 4000000; i++);
+    }
+}
+
+static void task_counter_b(void) {
+    char digit = '0';
+    while (1) {
+        vga_set_cursor(0, 79);
+        vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
+        vga_putchar(digit);
+        digit = (digit == '9') ? '0' : digit + 1;
+        for (volatile int i = 0; i < 6000000; i++);
+    }
+}
+
+static void cmd_ps(void) {
+    process_list();
+}
+
+static void cmd_kill(const char *args) {
+    args = k_ltrim(args);
+    int pid = 0;
+    while (*args >= '0' && *args <= '9') {
+        pid = pid * 10 + (*args - '0');
+        args++;
+    }
+    if (pid <= 0) {
+        vga_puts_color("  Usage: kill <pid> (cannot kill PID 0)\n", VGA_YELLOW, VGA_BLACK);
+        return;
+    }
+    process_kill(pid);
+    vga_puts("  Process terminated.\n");
+}
+
+static void cmd_spawn(const char *args) {
+    args = k_ltrim(args);
+    if (k_strcmp(args, "counter_a") == 0) {
+        process_create("counter_a", task_counter_a);
+        vga_puts("  Spawned counter_a\n");
+    } else if (k_strcmp(args, "counter_b") == 0) {
+        process_create("counter_b", task_counter_b);
+        vga_puts("  Spawned counter_b\n");
+    } else {
+        vga_puts_color("  Unknown task. Try: spawn counter_a or spawn counter_b\n", VGA_YELLOW, VGA_BLACK);
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -188,9 +253,13 @@ static void shell_run(void) {
             continue;
         }
 
+        /* Stage 1 Process Commands */
+        if (k_strcmp(cmd, "ps") == 0) { cmd_ps(); continue; }
+        if (k_strncmp(cmd, "kill", 4) == 0) { cmd_kill(cmd + 4); continue; }
+        if (k_strncmp(cmd, "spawn", 5) == 0) { cmd_spawn(cmd + 5); continue; }
+
         /* Milestone stubs */
-        if (k_strcmp(cmd, "ps")      == 0 ||
-            k_strcmp(cmd, "kill")    == 0 ||
+        if (
             k_strcmp(cmd, "threads") == 0 ||
             k_strcmp(cmd, "free")    == 0 ||
             k_strcmp(cmd, "ls")      == 0 ||
@@ -214,6 +283,16 @@ void kernel_main(void) {
     vga_init();
     kb_init();
     print_splash();
+
+    process_init();
+    scheduler_init();
+
+    idt_init();
+    pic_remap();
+    pit_init(50); // 50 Hz tick rate
+
+    __asm__ __volatile__("sti"); // Enable interrupts
+
     shell_run();
 
     /* Should never reach here */

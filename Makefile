@@ -1,21 +1,6 @@
 # =============================================================================
 # SENG21213-OS :: Makefile
 # =============================================================================
-#
-# TOOLCHAIN SETUP
-#   Option A (recommended): Use the Docker environment provided
-#              docker build -t seng21213-os .
-#              docker run --rm -v $(pwd):/os seng21213-os
-#
-#   Option B: Native cross-compiler
-#              Install i686-elf-gcc (see README.md § Toolchain)
-#              Set CC and LD to point to the cross tools.
-#
-#   Option C: Ubuntu/Debian with gcc-multilib
-#              sudo apt install gcc gcc-multilib nasm qemu-system-x86
-#              Use CC=gcc with the -m32 flag (already set below).
-#
-# =============================================================================
 
 # ---------------------------------------------------------------------------
 # Toolchain
@@ -25,16 +10,16 @@ ASFLAGS  := -f elf32
 
 # Try the cross-compiler first; fall back to native gcc -m32
 ifneq (, $(shell which i686-elf-gcc 2>/dev/null))
-    CC   := i686-elf-gcc
-    LD   := i686-elf-ld
-    CFLAGS := -m32 -ffreestanding -fno-stack-protector -fno-pie -nostdlib \
-              -Wall -Wextra -O2 -I./include
+    CC      := i686-elf-gcc
+    LD      := i686-elf-ld
+    CFLAGS  := -m32 -ffreestanding -fno-stack-protector -fno-pie -nostdlib \
+               -Wall -Wextra -O2 -I./include
     LDFLAGS := -m elf_i386 -nostdlib
 else
-    CC   := gcc
-    LD   := ld
-    CFLAGS := -m32 -ffreestanding -fno-stack-protector -fno-pie -nostdlib \
-              -Wall -Wextra -O2 -I./include
+    CC      := gcc
+    LD      := ld
+    CFLAGS  := -m32 -ffreestanding -fno-stack-protector -fno-pie -nostdlib \
+               -Wall -Wextra -O2 -I./include
     LDFLAGS := -m elf_i386 -nostdlib
 endif
 
@@ -44,23 +29,25 @@ endif
 BOOT_SRC  := boot/boot.asm
 BOOT_BIN  := boot/boot.bin
 
-KERNEL_ASM_SRC := kernel/kernel_entry.asm
-KERNEL_ASM_OBJ := build/kernel_entry.o
+# Assembly objects linked into the kernel
+KERNEL_ENTRY_SRC := kernel/kernel_entry.asm
+KERNEL_ENTRY_OBJ := build/kernel_entry.o
 
-KERNEL_C_SRCS  := kernel/kernel.c \
-                   kernel/vga.c    \
-                   kernel/keyboard.c
+SWITCH_SRC       := boot/switch.asm
+SWITCH_OBJ       := build/switch.o
 
-# Add your new source files below as the course progresses:
-# Lecture 09: kernel/process.c kernel/scheduler.c
-# Lecture 10: kernel/thread.c  kernel/mutex.c
-# Lecture 11: kernel/pmm.c     kernel/vmm.c
-# Lecture 12: kernel/fs.c
+# C Sources (Added process.c, scheduler.c, pit.c for Stage 1)
+KERNEL_C_SRCS    := kernel/kernel.c    \
+                    kernel/vga.c       \
+                    kernel/keyboard.c  \
+                    kernel/process.c   \
+                    kernel/scheduler.c \
+                    kernel/pit.c
 
-KERNEL_C_OBJS  := $(patsubst kernel/%.c, build/%.o, $(KERNEL_C_SRCS))
-KERNEL_ELF     := build/kernel.elf
-KERNEL_BIN     := build/kernel.bin
-OS_IMAGE       := seng21213-os.img
+KERNEL_C_OBJS    := $(patsubst kernel/%.c, build/%.o, $(KERNEL_C_SRCS))
+KERNEL_ELF       := build/kernel.elf
+KERNEL_BIN       := build/kernel.bin
+OS_IMAGE         := seng21213-os.img
 
 # ---------------------------------------------------------------------------
 # Default target
@@ -74,23 +61,29 @@ all: $(OS_IMAGE)
 	@echo ""
 
 # ---------------------------------------------------------------------------
-# Bootloader
+# Bootloader (Raw 512-byte binary)
 # ---------------------------------------------------------------------------
 $(BOOT_BIN): $(BOOT_SRC)
 	@mkdir -p build
+	@mkdir -p boot
 	@echo "  [AS]  $<"
 	$(AS) -f bin $< -o $@
 
 # ---------------------------------------------------------------------------
-# Kernel: Assembly object
+# Kernel Assembly Objects
 # ---------------------------------------------------------------------------
-$(KERNEL_ASM_OBJ): $(KERNEL_ASM_SRC)
+$(KERNEL_ENTRY_OBJ): $(KERNEL_ENTRY_SRC)
+	@mkdir -p build
+	@echo "  [AS]  $<"
+	$(AS) $(ASFLAGS) $< -o $@
+
+$(SWITCH_OBJ): $(SWITCH_SRC)
 	@mkdir -p build
 	@echo "  [AS]  $<"
 	$(AS) $(ASFLAGS) $< -o $@
 
 # ---------------------------------------------------------------------------
-# Kernel: C objects
+# Kernel C Objects
 # ---------------------------------------------------------------------------
 build/%.o: kernel/%.c
 	@mkdir -p build
@@ -100,7 +93,7 @@ build/%.o: kernel/%.c
 # ---------------------------------------------------------------------------
 # Link kernel ELF, then extract flat binary
 # ---------------------------------------------------------------------------
-$(KERNEL_ELF): $(KERNEL_ASM_OBJ) $(KERNEL_C_OBJS)
+$(KERNEL_ELF): $(KERNEL_ENTRY_OBJ) $(SWITCH_OBJ) $(KERNEL_C_OBJS)
 	@echo "  [LD]  $@"
 	$(LD) $(LDFLAGS) -T linker.ld $^ -o $@
 
@@ -114,8 +107,8 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
 	@echo "  [IMG]  Creating $(OS_IMAGE)..."
 	dd if=/dev/zero  bs=512 count=2880 of=$(OS_IMAGE) 2>/dev/null
-	dd if=$(BOOT_BIN)    conv=notrunc bs=512 count=1    of=$(OS_IMAGE) 2>/dev/null
-	dd if=$(KERNEL_BIN)  conv=notrunc bs=512 seek=1     of=$(OS_IMAGE) 2>/dev/null
+	dd if=$(BOOT_BIN)    conv=notrunc bs=512 count=1     of=$(OS_IMAGE) 2>/dev/null
+	dd if=$(KERNEL_BIN)  conv=notrunc bs=512 seek=1      of=$(OS_IMAGE) 2>/dev/null
 	@echo "  [IMG]  $(OS_IMAGE) ready ($(shell wc -c < $(KERNEL_BIN)) kernel bytes)"
 
 # ---------------------------------------------------------------------------
@@ -137,5 +130,5 @@ info:
 	@echo "Toolchain: CC=$(CC)  AS=$(AS)  LD=$(LD)"
 
 clean:
-	rm -rf build $(OS_IMAGE)
+	rm -rf build $(BOOT_BIN) $(OS_IMAGE)
 	@echo "  Cleaned."
