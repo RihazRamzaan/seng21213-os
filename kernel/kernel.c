@@ -245,7 +245,43 @@ static void cmd_write(const char *args) {
         vga_puts_color("  Error: file not found. Create it first with 'touch'.\n", VGA_LIGHT_RED, VGA_BLACK);
     }
 }
+/* ---------------------------------------------------------------------------
+ * Extension idea:Subdirectories (mkdir / cd / pwd)
+ * --------------------------------------------------------------------------*/
 
+static void cmd_mkdir(const char *name) {
+    name = k_ltrim(name);
+    if (k_strlen(name) == 0) {
+        vga_puts_color("  Usage: mkdir <dirname>\n", VGA_YELLOW, VGA_BLACK);
+        return;
+    }
+    if (fs_mkdir(name) == 0) {
+        vga_puts("  Created directory: ");
+        vga_puts(name);
+        vga_puts("\n");
+    } else {
+        vga_puts_color("  Error: directory already exists or filesystem full.\n", VGA_LIGHT_RED, VGA_BLACK);
+    }
+}
+
+static void cmd_cd(const char *path) {
+    path = k_ltrim(path);
+    if (k_strlen(path) == 0) {
+        fs_cd("/");
+        return;
+    }
+    if (fs_cd(path) != 0) {
+        vga_puts_color("  Error: directory not found.\n", VGA_LIGHT_RED, VGA_BLACK);
+    }
+}
+
+static void cmd_pwd(void) {
+    char path[128];
+    fs_pwd(path);
+    vga_puts("  ");
+    vga_puts(path);
+    vga_puts("\n");
+}
 /* ---------------------------------------------------------------------------
  * Splash Screen
  * --------------------------------------------------------------------------*/
@@ -315,10 +351,13 @@ static void cmd_help(void) {
     vga_puts_color("\n  Memory Management [L11]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("  free                - Display PMM physical page statistics & test\n");
 
-    vga_puts_color("\n  RAMDisk & File System [L12]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
-    vga_puts("  ls                  - List files in RAMDisk directory\n");
+    vga_puts_color("\n  RAMDisk & File System [L12 + Extensions]:\n", VGA_LIGHT_CYAN, VGA_BLACK);
+    vga_puts("  ls                  - List files and folders in current directory\n");
+    vga_puts("  pwd                 - Print current working directory path\n");
+    vga_puts("  cd <path>           - Change directory (supports '/', '..', name)\n");
+    vga_puts("  mkdir <dir>         - Create a new subdirectory\n");
     vga_puts("  touch <file>        - Create a new empty file\n");
-    vga_puts("  write <file> <text> - Write data to a file\n");
+    vga_puts("  write <file> <text> - Write string data into a file\n");
     vga_puts("  cat <file>          - Display contents of a file\n\n");
 }
 
@@ -417,6 +456,18 @@ static void shell_run(void) {
          if (k_strncmp(cmd, "write", 5) == 0) {
         cmd_write(cmd + 5);
         continue;
+        }
+        if (k_strncmp(cmd, "mkdir", 5) == 0) {
+            cmd_mkdir(cmd + 5);
+            continue;
+        }
+        if (k_strncmp(cmd, "cd", 2) == 0) {
+            cmd_cd(cmd + 2);
+            continue;
+        }
+        if (k_strcmp(cmd, "pwd") == 0) {
+            cmd_pwd();
+            continue;
         }
         /* Milestone stubs */
         
